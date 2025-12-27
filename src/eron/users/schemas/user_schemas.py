@@ -10,7 +10,6 @@ class UserCreate(BaseModel):
     first_name: Optional[str]
     last_name: Optional[str]
     email: EmailStr
-    phone_number: Optional[str]
     password: Optional[str] = None
     auth_provider: str = "email"
 

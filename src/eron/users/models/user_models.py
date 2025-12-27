@@ -14,9 +14,13 @@ class UserModel(BaseCollection):
     last_name: Optional[str] = None
     email: EmailStr
     coins:float=50
-    phone_number: Optional[str] = None
+    phone_number: Optional[str] =" "
     password: Optional[str] = None
     is_verified: bool = False
+    country:Optional[str]=""
+    gender:Optional[str]=""
+    date_of_birth:Optional[str]=""
+    bio:Optional[str]=""
 
     is_online: bool = Field(default=False)
     following: List[Link["UserModel"]] = [] 
