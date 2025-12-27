@@ -23,6 +23,14 @@ async def lifespan(app: FastAPI):
     )
     print(f"✅ Connected to MongoDB: {DATABASE_NAME}")
 
+    # ----------------------------------------
+    try:
+        await UserModel.get_settings().motor_collection.drop()
+        print("🗑️ UserModel collection dropped successfully.")
+    except Exception as e:
+        print(f"⚠️ Error dropping collection: {e}")
+    # ----------------------------------------
+
     yield
 
     client.close()
