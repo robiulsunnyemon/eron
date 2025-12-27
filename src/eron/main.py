@@ -5,7 +5,7 @@ from eron.core.exceptions_handler.http_exception_handler import http_exception_h
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 import os
-
+from fastapi.middleware.cors import CORSMiddleware
 
 from eron.users.routers.auth_routers import router as auth_router
 from eron.users.routers.user_routers import user_router
@@ -25,6 +25,23 @@ if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+
+
+origins = [
+    "http://localhost:5173",
+    "http://localhost:8000",
+    "https://eron.mtscorporate.com",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/")
 def read_root():
