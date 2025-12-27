@@ -9,7 +9,7 @@ import os
 
 from eron.users.routers.auth_routers import router as auth_router
 from eron.users.routers.user_routers import user_router
-
+from eron.users.routers.follow_routers import router as follow_router
 
 app = FastAPI(
     title="Eron API",
@@ -34,4 +34,5 @@ app.add_exception_handler(Exception, global_exception_handler)
 
 app.include_router(auth_router,prefix="/api/v1")
 app.include_router(user_router,prefix="/api/v1")
+app.include_router(follow_router,prefix="/api/v1")
 

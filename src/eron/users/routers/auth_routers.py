@@ -90,9 +90,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
     # str() conversion for ID is safer
     token = create_access_token(data={
-        "sub": db_user.email,
-        "role": db_user.role.value,
-        "user_id": str(db_user.id)
+        "sub": str(db_user.id),
+        "email": db_user.email,
+        "role": db_user.role.value
     })
     return {"access_token": token, "token_type": "bearer"}
 
@@ -167,9 +167,9 @@ async def google_login_token(access_token: str):
         )
         await new_user.create()
         token = create_access_token(data={
-            "sub": new_user.email,
-            "role": new_user.role.value,
-            "user_id": str(new_user.id)
+            "sub": str(new_user.id),
+            "email": new_user.email,
+            "role": new_user.role.value
         })
         return {"access_token": token, "token_type": "bearer"}
 
@@ -177,8 +177,8 @@ async def google_login_token(access_token: str):
     # Generate JWT token
 
     token = create_access_token(data={
-        "sub": db_user.email,
-        "role": db_user.role.value,
-        "user_id": str(db_user.id)
+        "sub": str(db_user.id),
+        "email": db_user.email,
+        "role": db_user.role.value
     })
     return {"access_token": token, "token_type": "bearer"}

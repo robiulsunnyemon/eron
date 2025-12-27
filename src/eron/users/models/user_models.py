@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from eron.core.base.base import BaseCollection
 from eron.users.utils.account_status import AccountStatus
 from eron.users.utils.user_role import UserRole
-
+from typing import List
+from beanie import Link
 
 class UserModel(BaseCollection):
 
@@ -16,6 +17,12 @@ class UserModel(BaseCollection):
     phone_number: Optional[str] = None
     password: Optional[str] = None
     is_verified: bool = False
+
+    is_online: bool = Field(default=False)
+    following: List[Link["UserModel"]] = [] 
+    following_count: int = Field(default=0)
+    followers_count: int = Field(default=0)
+
     account_status: AccountStatus = Field(default=AccountStatus.ACTIVE)
     otp: Optional[str] = None
     role: Optional[UserRole] = Field(default=UserRole.USER)
