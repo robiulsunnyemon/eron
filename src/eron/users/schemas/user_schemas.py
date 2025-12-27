@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr,Field
-from typing import Optional
+from typing import Optional,List
 from datetime import datetime
 from eron.core.base.base import BaseResponse
 from eron.users.utils.account_status import AccountStatus
@@ -27,6 +27,12 @@ class UserResponse(BaseResponse):
     email: EmailStr
     phone_number: Optional[str]
     coins: Optional[float]
+    is_online:bool
+
+
+    following_count: int = Field(default=0)
+    followers_count: int = Field(default=0)
+
     is_verified: bool
     profile_image: Optional[str]
     auth_provider: str
