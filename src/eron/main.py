@@ -11,7 +11,7 @@ from eron.users.routers.auth_routers import router as auth_router
 from eron.users.routers.user_routers import user_router
 from eron.users.routers.follow_routers import router as follow_router
 from eron.chats.routers.chat_routers import chat_router
-
+from eron.live_stream.routers.live_stream import router as livestream_router
 
 
 app = FastAPI(
@@ -56,3 +56,4 @@ app.include_router(auth_router,prefix="/api/v1")
 app.include_router(user_router,prefix="/api/v1")
 app.include_router(follow_router,prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(livestream_router, prefix="/api/v1")
