@@ -84,7 +84,7 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                 await websocket.send_json({
                     "event": "live_started",
                     "channel_name": channel_name,
-                    "token": agora_token
+                    "agora_token": agora_token
                 })
 
 
