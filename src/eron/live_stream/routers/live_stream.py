@@ -149,7 +149,11 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
 
                     await livestream_manager.broadcast(current_channel, {
                         "event": "new_comment",
-                        "user": {"id": str(current_user.id), "name": current_user.first_name},
+                        "user": {
+                                "id": str(current_user.id),
+                                "name": current_user.first_name,
+                                "avatar": current_user.profile_image
+                            },
                         "message": content
                     })
 
