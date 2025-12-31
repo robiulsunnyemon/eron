@@ -13,6 +13,7 @@ class LiveStreamModel(BaseCollection):
     start_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     end_time: Optional[datetime] = None
     total_like: int = 0
+    total_views: int = 0
     total_comment: int = 0
     status: str = "live"
 

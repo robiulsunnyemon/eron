@@ -2,6 +2,7 @@ import json
 import time
 import os
 from datetime import datetime, timezone
+from typing import List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status
 from dotenv import load_dotenv
 from eron.live_stream.models.live_stream import LiveStreamModel, LiveViewerModel, LiveCommentModel
@@ -18,19 +19,30 @@ APP_CERTIFICATE = os.getenv("AGORA_APP_CERTIFICATE")
 
 class LiveConnectionManager:
     def __init__(self):
+        # channel_name -> list of websockets
         self.active_rooms: dict = {}
 
-    async def connect(self, websocket: WebSocket, channel_name: str):
+    async def connect_to_room(self, websocket: WebSocket, channel_name: str):
         if channel_name not in self.active_rooms:
             self.active_rooms[channel_name] = []
         self.active_rooms[channel_name].append(websocket)
+        await self.broadcast_viewer_count(channel_name)
 
-    def disconnect(self, websocket: WebSocket, channel_name: str):
+    async def disconnect_from_room(self, websocket: WebSocket, channel_name: str):
         if channel_name in self.active_rooms:
             if websocket in self.active_rooms[channel_name]:
                 self.active_rooms[channel_name].remove(websocket)
             if not self.active_rooms[channel_name]:
                 del self.active_rooms[channel_name]
+            else:
+                await self.broadcast_viewer_count(channel_name)
+
+    async def broadcast_viewer_count(self, channel_name: str):
+        count = len(self.active_rooms.get(channel_name, []))
+        await self.broadcast(channel_name, {
+            "event": "viewer_count_update",
+            "count": count
+        })
 
     async def broadcast(self, channel_name: str, message: dict):
         if channel_name in self.active_rooms:
@@ -48,6 +60,7 @@ livestream_manager = LiveConnectionManager()
 async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     await websocket.accept()
     current_channel = None
+    user_id = None
 
     try:
         current_user = await get_current_user(token)
@@ -61,7 +74,7 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
             data = await websocket.receive_json()
             action = data.get("action")
 
-
+            # --- ১. লাইভ শুরু করা ---
             if action == "start_live":
                 if current_channel: continue
 
@@ -80,22 +93,25 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                 await new_live.insert()
 
                 current_channel = channel_name
-                await livestream_manager.connect(websocket, channel_name)
+                await livestream_manager.connect_to_room(websocket, channel_name)
+
                 await websocket.send_json({
                     "event": "live_started",
                     "channel_name": channel_name,
                     "agora_token": agora_token
                 })
 
-
+            # --- ২. লাইভে জয়েন করা ---
             elif action == "join_live":
                 channel_name = data.get("channel_name")
-                live = await LiveStreamModel.find_one(LiveStreamModel.agora_channel_name == channel_name)
+                live = await LiveStreamModel.find_one(
+                    LiveStreamModel.agora_channel_name == channel_name,
+                    LiveStreamModel.status == "live"
+                )
 
-                if live and live.status == "live":
+                if live:
                     current_channel = channel_name
-                    await livestream_manager.connect(websocket, channel_name)
-
+                    await livestream_manager.connect_to_room(websocket, channel_name)
 
                     new_viewer = LiveViewerModel(
                         session=live,
@@ -104,62 +120,75 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                     )
                     await new_viewer.insert()
 
+                    live.total_views += 1
+                    await live.save()
+
                     await websocket.send_json({"event": "joined_success", "channel": channel_name})
 
+            # --- ৩. লাইক পাঠানো ---
+            elif action == "send_like" and current_channel:
+                live = await LiveStreamModel.find_one(LiveStreamModel.agora_channel_name == current_channel)
+                if live:
+                    live.total_like += 1
+                    await live.save()
+                    await livestream_manager.broadcast(current_channel, {
+                        "event": "new_like",
+                        "total_likes": live.total_like
+                    })
 
-            elif action == "send_like":
-                if current_channel:
-                    live = await LiveStreamModel.find_one(
-                        LiveStreamModel.agora_channel_name == current_channel,
-                        LiveStreamModel.status == "live"
-                    )
-                    if live:
-                        live.total_like += 1
-                        await live.save()
+            # --- ৪. কমেন্ট পাঠানো ---
+            elif action == "send_comment" and current_channel:
+                live = await LiveStreamModel.find_one(LiveStreamModel.agora_channel_name == current_channel)
+                if live:
+                    content = data.get("message", "")
+                    new_comment = LiveCommentModel(session=live, user=current_user, content=content)
+                    await new_comment.insert()
 
+                    live.total_comment += 1
+                    await live.save()
 
-                        await livestream_manager.broadcast(current_channel, {
-                            "event": "new_like",
-                            "user_id": user_id,
-                            "total_likes": live.total_like
-                        })
-
-
-            elif action == "send_comment":
-                if current_channel:
-                    live = await LiveStreamModel.find_one(
-                        LiveStreamModel.agora_channel_name == current_channel,
-                        LiveStreamModel.status == "live"
-                    )
-                    if live:
-
-                        new_comment = LiveCommentModel(
-                            session=live,
-                            user=current_user,
-                            content=data.get("message", "")
-                        )
-                        await new_comment.insert()
-
-
-                        live.total_comment += 1
-                        await live.save()
-
-                        await livestream_manager.broadcast(current_channel, {
-                            "event": "new_comment",
-                            "user_id": user_id,
-                            "message": data.get("message")
-                        })
+                    await livestream_manager.broadcast(current_channel, {
+                        "event": "new_comment",
+                        "user": {"id": str(current_user.id), "name": current_user.first_name},
+                        "message": content
+                    })
 
     except WebSocketDisconnect:
         if current_channel:
-            livestream_manager.disconnect(websocket, current_channel)
-            live = await LiveStreamModel.find_one(
-                LiveStreamModel.agora_channel_name == current_channel,
-                LiveStreamModel.status == "live"
-            )
+            await livestream_manager.disconnect_from_room(websocket, current_channel)
+            live = await LiveStreamModel.find_one(LiveStreamModel.agora_channel_name == current_channel)
 
+            # শুধুমাত্র হোস্ট বের হলে লাইভ স্ট্যাটাস 'ended' হবে
             if live and str(live.host.ref.id) == user_id:
                 live.status = "ended"
                 live.end_time = datetime.now(timezone.utc)
                 await live.save()
                 await livestream_manager.broadcast(current_channel, {"event": "live_ended"})
+
+
+# --- ৫. একটিভ লাইভ লিস্ট API ---
+@router.get("/active", response_model=List[dict])
+async def get_active_lives():
+    active_lives = await LiveStreamModel.find(
+        LiveStreamModel.status == "live"
+    ).to_list()
+
+    response_data = []
+    for live in active_lives:
+        await live.fetch_link(LiveStreamModel.host)
+        response_data.append({
+            "id": str(live.id),
+            "host": {
+                "id": str(live.host.id),
+                "name": live.host.first_name,
+                "avatar": live.host.profile_image if hasattr(live.host, 'profile_image') else None
+            },
+            "channel_name": live.agora_channel_name,
+            "is_premium": live.is_premium,
+            "entry_fee": live.entry_fee,
+            "status": live.status,
+            "total_like": live.total_like,
+            "total_comment": live.total_comment,
+            "total_views": live.total_views
+        })
+    return response_data
