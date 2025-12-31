@@ -15,6 +15,7 @@ dependencies = [
     "python-jose (>=3.5.0,<4.0.0)",
     "requests (>=2.32.5,<3.0.0)",
     "argon2-cffi (>=25.1.0,<26.0.0)",
+    "agora-token-builder (>=1.0.0,<2.0.0)",
 ]
 
 [tool.poetry]
