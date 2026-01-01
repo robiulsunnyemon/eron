@@ -8,6 +8,7 @@ from typing import List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status
 from dotenv import load_dotenv
 from eron.live_stream.models.live_stream import LiveStreamModel, LiveViewerModel, LiveCommentModel
+from eron.users.models.user_models import UserModel
 from eron.users.utils.get_current_user import get_current_user
 from agora_token_builder import RtcTokenBuilder
 
@@ -148,6 +149,81 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
             # --- ৩. লাইক পাঠানো ---
 
                 # --- ২. লাইভে জয়েন করা (সংশোধিত লজিক) ---
+            # elif action == "join_live":
+            #     channel_name = data.get("channel_name")
+            #     live = await LiveStreamModel.find_one(
+            #         LiveStreamModel.agora_channel_name == channel_name,
+            #         LiveStreamModel.status == "live",
+            #         fetch_links=True
+            #     )
+            #
+            #     if not live:
+            #         await websocket.send_json({"event": "error", "message": "Live session not found or ended"})
+            #         continue
+            #
+            #
+            #     already_joined = await LiveViewerModel.find_one({
+            #         "session.$id": live.id,
+            #         "user.$id": current_user.id
+            #     })
+            #     # যদি আগে জয়েন না করে থাকে এবং লাইভটি প্রিমিয়াম হয়
+            #     if not already_joined and live.is_premium and live.entry_fee > 0:
+            #         # ইউজারের ব্যালেন্স চেক
+            #         if current_user.coins < live.entry_fee:
+            #             await websocket.send_json({
+            #                 "event": "error",
+            #                 "message": "আপনার পর্যাপ্ত কয়েন নেই। দয়া করে রিচার্জ করুন।"
+            #             })
+            #             continue
+            #
+            #         # ১. ইউজারের অ্যাকাউন্ট থেকে কয়েন কাটা
+            #         current_user.coins -= live.entry_fee
+            #         await current_user.save()
+            #
+            #         # ২. হোস্টের অ্যাকাউন্টে কয়েন যোগ করা
+            #         host = live.host
+            #         host.coins += live.entry_fee
+            #         await host.save()
+            #
+            #         # ৩. ভিউয়ার রেকর্ড তৈরি করা (fee_paid সেভ করে রাখা)
+            #         new_viewer = LiveViewerModel(
+            #             session=live,
+            #             user=current_user,
+            #             fee_paid=live.entry_fee
+            #         )
+            #         await new_viewer.insert()
+            #
+            #     elif not already_joined:
+            #         # ফ্রি লাইভ হলে শুধু রেকর্ড তৈরি করা
+            #         new_viewer = LiveViewerModel(
+            #             session=live,
+            #             user=current_user,
+            #             fee_paid=0
+            #         )
+            #         await new_viewer.insert()
+            #
+            #     # সেশন কানেক্ট করা এবং Agora টোকেন পাঠানো
+            #     current_channel = channel_name
+            #     await livestream_manager.connect_to_room(websocket, channel_name)
+            #
+            #     live.total_views += 1
+            #     await live.save()
+            #
+            #     viewer_uid = 0
+            #     viewer_token = RtcTokenBuilder.buildTokenWithUid(
+            #         APP_ID, APP_CERTIFICATE, channel_name, viewer_uid, 2, int(time.time()) + 3600
+            #     )
+            #
+            #     await websocket.send_json({
+            #         "event": "joined_success",
+            #         "channel": channel_name,
+            #         "agora_token": viewer_token,
+            #         "uid": viewer_uid,
+            #         "new_balance": current_user.coins  # ইউজারকে তার আপডেট ব্যালেন্স জানানো
+            #     })
+            #
+            #
+
             elif action == "join_live":
                 channel_name = data.get("channel_name")
                 live = await LiveStreamModel.find_one(
@@ -157,60 +233,59 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                 )
 
                 if not live:
-                    await websocket.send_json({"event": "error", "message": "Live session not found or ended"})
+                    await websocket.send_json({"event": "error", "message": "লাইভ সেশনটি পাওয়া যায়নি।"})
                     continue
 
-                # চেক করা ইউজার আগে এই লাইভে টাকা দিয়ে জয়েন করেছিল কি না
-                # already_joined = await LiveViewerModel.find_one(
-                #     LiveViewerModel.session["id"] == live.id,
-                #     LiveViewerModel.user.id == current_user.id,
-                # )
+                # ১. চেক করা হচ্ছে ইউজার আগে এই লাইভে জয়েন করেছিল কি না (এবং টাকা দিয়েছিল কি না)
                 already_joined = await LiveViewerModel.find_one({
                     "session.$id": live.id,
                     "user.$id": current_user.id
                 })
-                # যদি আগে জয়েন না করে থাকে এবং লাইভটি প্রিমিয়াম হয়
-                if not already_joined and live.is_premium and live.entry_fee > 0:
-                    # ইউজারের ব্যালেন্স চেক
-                    if current_user.coins < live.entry_fee:
-                        await websocket.send_json({
-                            "event": "error",
-                            "message": "আপনার পর্যাপ্ত কয়েন নেই। দয়া করে রিচার্জ করুন।"
-                        })
-                        continue
 
-                    # ১. ইউজারের অ্যাকাউন্ট থেকে কয়েন কাটা
-                    current_user.coins -= live.entry_fee
-                    await current_user.save()
+                # ২. ট্রানজ্যাকশন শুরু
+                async with await LiveStreamModel.get_motor_collection().database.client.start_session() as session:
+                    async with session.start_transaction():
+                        try:
+                            # যদি আগে জয়েন না করে থাকে এবং এটি প্রিমিয়াম লাইভ হয়
+                            if not already_joined:
+                                if live.is_premium and live.entry_fee > 0 and str(live.host.id) != str(current_user.id):
+                                    # ইউজারের ব্যালেন্স লেটেস্ট ডাটা অনুযায়ী চেক
+                                    fresh_user = await UserModel.get(current_user.id, session=session)
+                                    if fresh_user.coins < live.entry_fee:
+                                        await websocket.send_json({"event": "error", "message": "পর্যাপ্ত কয়েন নেই!"})
+                                        raise Exception("Insufficient balance")
 
-                    # ২. হোস্টের অ্যাকাউন্টে কয়েন যোগ করা
-                    host = live.host
-                    host.coins += live.entry_fee
-                    await host.save()
+                                    # কয়েন আদান-প্রদান (Atomic Update)
+                                    await fresh_user.update({"$inc": {"coins": -live.entry_fee}}, session=session)
+                                    await UserModel.find_one({"_id": live.host.id}).update(
+                                        {"$inc": {"coins": live.entry_fee}}, session=session
+                                    )
 
-                    # ৩. ভিউয়ার রেকর্ড তৈরি করা (fee_paid সেভ করে রাখা)
-                    new_viewer = LiveViewerModel(
-                        session=live,
-                        user=current_user,
-                        fee_paid=live.entry_fee
-                    )
-                    await new_viewer.insert()
+                                    # ভিউয়ার রেকর্ড তৈরি (যাতে পরবর্তীতে আর টাকা না কাটে)
+                                    new_viewer = LiveViewerModel(session=live, user=current_user,
+                                                                 fee_paid=live.entry_fee)
+                                    await new_viewer.insert(session=session)
+                                    current_user.coins -= live.entry_fee
+                                else:
+                                    # ফ্রি লাইভ বা হোস্ট হলে সরাসরি রেকর্ড
+                                    new_viewer = LiveViewerModel(session=live, user=current_user, fee_paid=0)
+                                    await new_viewer.insert(session=session)
 
-                elif not already_joined:
-                    # ফ্রি লাইভ হলে শুধু রেকর্ড তৈরি করা
-                    new_viewer = LiveViewerModel(
-                        session=live,
-                        user=current_user,
-                        fee_paid=0
-                    )
-                    await new_viewer.insert()
+                            else:
+                                # ইউজার আগে জয়েন করেছে, তাই কোনো কয়েন কাটা হবে না।
+                                # আপনি চাইলে এখানে একটি মেসেজ পাঠাতে পারেন: "Welcome back!"
+                                pass
 
-                # সেশন কানেক্ট করা এবং Agora টোকেন পাঠানো
+                            # লাইভ ভিউ ১ বাড়ানো
+                            await live.update({"$inc": {"total_views": 1}}, session=session)
+
+                        except Exception as e:
+                            print(f"Transaction failed: {e}")
+                            continue
+
+                # ৩. বাকি প্রসেস (Agora টোকেন তৈরি ও কানেক্ট)
                 current_channel = channel_name
                 await livestream_manager.connect_to_room(websocket, channel_name)
-
-                live.total_views += 1
-                await live.save()
 
                 viewer_uid = 0
                 viewer_token = RtcTokenBuilder.buildTokenWithUid(
@@ -222,10 +297,8 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                     "channel": channel_name,
                     "agora_token": viewer_token,
                     "uid": viewer_uid,
-                    "new_balance": current_user.coins  # ইউজারকে তার আপডেট ব্যালেন্স জানানো
+                    "new_balance": current_user.coins
                 })
-                
-                
                 
                 
             elif action == "send_like" and current_channel:
