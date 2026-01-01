@@ -163,7 +163,8 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                 # চেক করা ইউজার আগে এই লাইভে টাকা দিয়ে জয়েন করেছিল কি না
                 already_joined = await LiveViewerModel.find_one(
                     LiveViewerModel.session.id == live.id,
-                    LiveViewerModel.user.id == current_user.id
+                    LiveViewerModel.user.id == current_user.id,
+                    fetch_links=True
                 )
 
                 # যদি আগে জয়েন না করে থাকে এবং লাইভটি প্রিমিয়াম হয়
@@ -221,10 +222,10 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                     "uid": viewer_uid,
                     "new_balance": current_user.coins  # ইউজারকে তার আপডেট ব্যালেন্স জানানো
                 })
-
-
-
-
+                
+                
+                
+                
             elif action == "send_like" and current_channel:
                 live = await LiveStreamModel.find_one(LiveStreamModel.agora_channel_name == current_channel)
                 if live:
