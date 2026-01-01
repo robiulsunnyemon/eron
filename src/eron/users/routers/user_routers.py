@@ -1,7 +1,9 @@
-from fastapi import APIRouter, HTTPException, status
+
+from fastapi import APIRouter, HTTPException, status,Depends
 from typing import List
 from eron.users.models.user_models import UserModel
 from eron.users.schemas.user_schemas import UserResponse
+from eron.users.utils.get_current_user import get_current_user
 
 # Define the router for User Management
 user_router = APIRouter(prefix="/users", tags=["Users"])
@@ -42,7 +44,9 @@ async def get_user(user_id: str):
     return user
 
 
-
+@user_router.get("/users/my_profile", response_model=UserModel)
+async def my_profile(current_user: UserModel = Depends(get_current_user)):
+    return current_user
 
 
 
