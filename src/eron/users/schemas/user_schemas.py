@@ -31,6 +31,7 @@ class UserResponse(BaseResponse):
 
     following_count: int = Field(default=0)
     followers_count: int = Field(default=0)
+    total_like: int = Field(default=0)
 
     is_verified: bool
     profile_image: Optional[str]

@@ -182,17 +182,23 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                 
                 
             elif action == "send_like" and current_channel:
-                live = await LiveStreamModel.find_one(LiveStreamModel.agora_channel_name == current_channel)
+                live = await LiveStreamModel.find_one(LiveStreamModel.agora_channel_name == current_channel, LiveStreamModel.status == "live",
+                    fetch_links=True)
                 if live:
                     live.total_like += 1
                     await live.save()
-                    await UserModel.find_one({"_id": live.host.id}).update(
-                        {"$inc": {"total_like": 1}}
-                    )
+
+                    host_user = await live.host.fetch()  # লিঙ্ক থেকে হোস্ট ইউজার ফেচ করুন
+                    db_user=await UserModel.get(host_user.id)
+                    db_user.total_like+=1
+                    await db_user.save()
+
                     await livestream_manager.broadcast(current_channel, {
                         "event": "new_like",
-                        "total_likes": live.total_like
+                        "total_likes": live.total_like,
+                        "db_user":db_user
                     })
+
 
 
             elif action == "send_comment" and current_channel:
