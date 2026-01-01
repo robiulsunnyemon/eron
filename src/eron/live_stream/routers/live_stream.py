@@ -162,7 +162,7 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
 
                 # চেক করা ইউজার আগে এই লাইভে টাকা দিয়ে জয়েন করেছিল কি না
                 already_joined = await LiveViewerModel.find_one(
-                    LiveViewerModel.session == live.id,
+                    LiveViewerModel.session["id"] == live.id,
                     LiveViewerModel.user.id == current_user.id,
                 )
 
