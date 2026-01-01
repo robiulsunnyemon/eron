@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
 from eron.chats.models.chat_models import ChatMessageModel
-from eron.live_stream.models.live_stream import LiveStreamModel
+from eron.live_stream.models.live_stream import LiveStreamModel, LiveViewerModel, LiveCommentModel
 from eron.users.models.user_models import UserModel
 
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
@@ -14,7 +14,10 @@ DATABASE_NAME = os.getenv("DATABASE_NAME", "eron")
 MODELS = [
     UserModel,
 ChatMessageModel,
-LiveStreamModel
+LiveStreamModel,
+LiveViewerModel,
+LiveCommentModel
+
 ]
 
 

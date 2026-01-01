@@ -11,6 +11,7 @@ from eron.live_stream.models.live_stream import LiveStreamModel, LiveViewerModel
 from eron.users.models.user_models import UserModel
 from eron.users.utils.get_current_user import get_current_user
 from agora_token_builder import RtcTokenBuilder
+from uuid import UUID
 
 load_dotenv()
 
@@ -236,54 +237,47 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                     await websocket.send_json({"event": "error", "message": "লাইভ সেশনটি পাওয়া যায়নি।"})
                     continue
 
-                # ১. চেক করা হচ্ছে ইউজার আগে এই লাইভে জয়েন করেছিল কি না (এবং টাকা দিয়েছিল কি না)
+                # ১. আগে জয়েন করেছে কি না চেক করুন
                 already_joined = await LiveViewerModel.find_one({
                     "session.$id": live.id,
                     "user.$id": current_user.id
                 })
+                # ২. পেমেন্ট লজিক (যদি আগে জয়েন না করে থাকে)
+                if not already_joined:
+                    # প্রিমিয়াম লাইভ এবং ইউজার নিজে হোস্ট না হলে কয়েন কাটবে
+                    if live.is_premium and live.entry_fee > 0 and str(live.host.id) != str(current_user.id):
 
-                # ২. ট্রানজ্যাকশন শুরু
-                async with await LiveStreamModel.get_motor_collection().database.client.start_session() as session:
-                    async with session.start_transaction():
-                        try:
-                            # যদি আগে জয়েন না করে থাকে এবং এটি প্রিমিয়াম লাইভ হয়
-                            if not already_joined:
-                                if live.is_premium and live.entry_fee > 0 and str(live.host.id) != str(current_user.id):
-                                    # ইউজারের ব্যালেন্স লেটেস্ট ডাটা অনুযায়ী চেক
-                                    fresh_user = await UserModel.get(current_user.id, session=session)
-                                    if fresh_user.coins < live.entry_fee:
-                                        await websocket.send_json({"event": "error", "message": "পর্যাপ্ত কয়েন নেই!"})
-                                        raise Exception("Insufficient balance")
-
-                                    # কয়েন আদান-প্রদান (Atomic Update)
-                                    await fresh_user.update({"$inc": {"coins": -live.entry_fee}}, session=session)
-                                    await UserModel.find_one({"_id": live.host.id}).update(
-                                        {"$inc": {"coins": live.entry_fee}}, session=session
-                                    )
-
-                                    # ভিউয়ার রেকর্ড তৈরি (যাতে পরবর্তীতে আর টাকা না কাটে)
-                                    new_viewer = LiveViewerModel(session=live, user=current_user,
-                                                                 fee_paid=live.entry_fee)
-                                    await new_viewer.insert(session=session)
-                                    current_user.coins -= live.entry_fee
-                                else:
-                                    # ফ্রি লাইভ বা হোস্ট হলে সরাসরি রেকর্ড
-                                    new_viewer = LiveViewerModel(session=live, user=current_user, fee_paid=0)
-                                    await new_viewer.insert(session=session)
-
-                            else:
-                                # ইউজার আগে জয়েন করেছে, তাই কোনো কয়েন কাটা হবে না।
-                                # আপনি চাইলে এখানে একটি মেসেজ পাঠাতে পারেন: "Welcome back!"
-                                pass
-
-                            # লাইভ ভিউ ১ বাড়ানো
-                            await live.update({"$inc": {"total_views": 1}}, session=session)
-
-                        except Exception as e:
-                            print(f"Transaction failed: {e}")
+                        # ব্যালেন্স চেক (Atomic ভাবে লেটেস্ট ডাটা দেখা)
+                        if current_user.coins < live.entry_fee:
+                            await websocket.send_json({"event": "error", "message": "আপনার পর্যাপ্ত কয়েন নেই!"})
                             continue
 
-                # ৩. বাকি প্রসেস (Agora টোকেন তৈরি ও কানেক্ট)
+                        # --- ATOMIC UPDATE (Safe for Standalone Server) ---
+                        # ইউজারের কয়েন কমানো
+                        await current_user.update({"$inc": {"coins": -live.entry_fee}})
+
+                        # হোস্টের কয়েন বাড়ানো (সরাসরি হোস্টের ID দিয়ে আপডেট)
+                        # আপনার প্রোজেক্টের UserModel ইম্পোর্ট নিশ্চিত করুন
+                        from eron.users.models.user_models import UserModel
+                        await UserModel.find_one({"_id": live.host.id}).update(
+                            {"$inc": {"coins": live.entry_fee}}
+                        )
+
+                        # ভিউয়ার রেকর্ড সেভ (যাতে পুনরায় কয়েন না কাটে)
+                        new_viewer = LiveViewerModel(
+                            session=live, user=current_user, fee_paid=live.entry_fee
+                        )
+                        await new_viewer.insert()
+
+                        # লোকাল ইউজারের কয়েন সংখ্যা আপডেট (ফ্রন্টএন্ডে পাঠানোর জন্য)
+                        current_user.coins -= live.entry_fee
+                    else:
+                        # ফ্রি লাইভ বা হোস্ট হলে সরাসরি রেকর্ড
+                        new_viewer = LiveViewerModel(session=live, user=current_user, fee_paid=0)
+                        await new_viewer.insert()
+
+                # ৩. লাইভ ভিউ বাড়ানো এবং জয়েন করা
+                await live.update({"$inc": {"total_views": 1}})
                 current_channel = channel_name
                 await livestream_manager.connect_to_room(websocket, channel_name)
 
@@ -344,6 +338,10 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                 await livestream_manager.broadcast(current_channel, {"event": "live_ended"})
 
 
+
+
+
+
 @router.get("/active", response_model=List[dict])
 async def get_active_lives():
     active_lives = await LiveStreamModel.find(
@@ -369,3 +367,40 @@ async def get_active_lives():
             "total_views": live.total_views
         })
     return response_data
+
+
+
+@router.get("/session/{session_id}/viewers", response_model=List[dict])
+async def get_live_viewers(session_id: UUID):
+    """
+    একটি নির্দিষ্ট লাইভ সেশনের সকল ভিউয়ারদের তালিকা দেখার ফাংশন।
+    """
+    # ১. ওই সেশনের সকল ভিউয়ার খুঁজে বের করা (fetch_links=True ইউজারের ডাটা পাওয়ার জন্য)
+    viewers = await LiveViewerModel.find(
+        {"session.$id": session_id},
+        fetch_links=True
+    ).to_list()
+
+    if not viewers:
+        return []
+
+    # ২. ডাটাকে সুন্দরভাবে সাজিয়ে রিটার্ন করা
+    viewer_list = []
+    for viewer in viewers:
+        # যেহেতু user একটি Link, তাই viewer.user সরাসরি UserModel অবজেক্ট দিবে
+        user_data = viewer.user
+        viewer_list.append({
+            "user_id": user_data.id,
+            "full_name": user_data.full_name, # আপনার UserModel এ যে ফিল্ড আছে
+            "username": user_data.username,
+            "profile_pic": user_data.profile_pic if hasattr(user_data, 'profile_pic') else None,
+            "joined_at": viewer.joined_at,
+            "fee_paid": viewer.fee_paid
+        })
+
+    return viewer_list
+
+
+@router.get("/viewers",status_code=status.HTTP_200_OK)
+async def get_all_viewers():
+    return await LiveViewerModel.find_all().to_list()
