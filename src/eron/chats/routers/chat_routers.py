@@ -124,5 +124,5 @@ async def get_active_users(current_user: UserModel = Depends(get_current_user)):
 
 @chat_router.get("/all/chats",status_code=status.HTTP_200_OK)
 async def get_chat_history():
-    chats=await ChatMessageModel.find_all().to_list()
+    chats=await ChatMessageModel.find(fetch_links=True).to_list()
     return chats

@@ -120,7 +120,7 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                 )
 
                 if not live:
-                    await websocket.send_json({"event": "error", "message": "লাইভ সেশনটি পাওয়া যায়নি।"})
+                    await websocket.send_json({"event": "error", "message": "Live session not found"})
                     continue
 
                 # ১. আগে জয়েন করেছে কি না চেক করুন
@@ -259,7 +259,7 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                     }
 
                     # ৫. নিজের কাছে সরাসরি রেসপন্স পাঠান (নিশ্চিত হওয়ার জন্য)
-                    await websocket.send_json(comment_payload)
+                    #await websocket.send_json(comment_payload)
 
                     # ৬. রুমে থাকা বাকি সবাইকে পাঠানো
                     await livestream_manager.broadcast(ch_name, comment_payload)
