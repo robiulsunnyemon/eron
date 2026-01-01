@@ -179,47 +179,92 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                     "uid": viewer_uid,
                     "new_balance": current_user.coins
                 })
-                
-                
-            elif action == "send_like" and current_channel:
-                live = await LiveStreamModel.find_one(LiveStreamModel.agora_channel_name == current_channel, LiveStreamModel.status == "live",
-                    fetch_links=True)
+
+            elif action == "send_like":
+                ch_name = data.get("channel_name")
+
+                if not ch_name:
+                    await websocket.send_json({"event": "error", "message": "Channel name missing"})
+                    continue
+
+                # ১. লাইভ অবজেক্ট ফেচ করা
+                live = await LiveStreamModel.find_one(
+                    LiveStreamModel.agora_channel_name == ch_name,
+                    LiveStreamModel.status == "live",
+                    fetch_links=True
+                )
+
                 if live:
-                    live.total_like += 1
-                    await live.save()
+                    # ২. লাইভ সেশনের লাইক বাড়ানো (Atomic update)
+                    await live.update({"$inc": {"total_like": 1}})
 
-                    host_user = await live.host.fetch()  # লিঙ্ক থেকে হোস্ট ইউজার ফেচ করুন
-                    db_user=await UserModel.get(host_user.id)
-                    db_user.total_like+=1
-                    await db_user.save()
+                    # ৩. হোস্টের প্রোফাইলে লাইক বাড়ানো
+                    # নোট: fetch_links=True থাকায় live.host.id সরাসরি কাজ করবে
+                    if live.host:
+                        # এখানে সরাসরি কালেকশন নেম ইউজ না করে সোর্স থেকে সার্চ করা নিরাপদ
+                        from eron.users.models.user_models import UserModel as UserClass
+                        await UserClass.find_one({"_id": live.host.id}).update(
+                            {"$inc": {"total_like": 1}}
+                        )
 
-                    await livestream_manager.broadcast(current_channel, {
+                    # ৪. লাইক সংখ্যা আপডেট করে রেসপন্স পাঠানো
+                    updated_likes = live.total_like + 1
+                    response_data = {
                         "event": "new_like",
-                        "total_likes": live.total_like,
-                        "db_user":db_user
-                    })
+                        "total_likes": updated_likes
+                    }
+
+                    # নিজের কাছে কনফার্মেশন পাঠানো
+                    await websocket.send_json(response_data)
+
+                    # রুমে থাকা সবাইকে জানানো
+                    await livestream_manager.broadcast(ch_name, response_data)
+                else:
+                    await websocket.send_json({"event": "error", "message": "Live session not found"})
 
 
+            elif action == "send_comment":
+                ch_name = data.get("channel_name")
+                content = data.get("message", "").strip()
 
-            elif action == "send_comment" and current_channel:
-                live = await LiveStreamModel.find_one(LiveStreamModel.agora_channel_name == current_channel)
+                if not ch_name or not content:
+                    await websocket.send_json({"event": "error", "message": "Channel name or message missing"})
+                    continue
+
+                # ১. লাইভ সেশন খুঁজে বের করা
+                live = await LiveStreamModel.find_one(
+                    LiveStreamModel.agora_channel_name == ch_name,
+                    LiveStreamModel.status == "live"
+                )
+
                 if live:
-                    content = data.get("message", "")
+                    # ২. ডাটাবেসে কমেন্ট সেভ
+                    # দ্রষ্টব্য: এখানে live অবজেক্টটি সরাসরি পাস করলেই Beanie লিঙ্ক তৈরি করে নেয়
                     new_comment = LiveCommentModel(session=live, user=current_user, content=content)
                     await new_comment.insert()
 
-                    live.total_comment += 1
-                    await live.save()
+                    # ৩. টোটাল কমেন্ট সংখ্যা আপডেট (Atomic Update)
+                    await live.update({"$inc": {"total_comment": 1}})
 
-                    await livestream_manager.broadcast(current_channel, {
+                    # ৪. ব্রডকাস্ট ডাটা তৈরি
+                    comment_payload = {
                         "event": "new_comment",
                         "user": {
                             "id": str(current_user.id),
-                            "name": current_user.first_name,
-                            "avatar": current_user.profile_image if hasattr(current_user, 'profile_image') else None
+                            "name": f"{current_user.first_name or ''} {current_user.last_name or ''}".strip(),
+                            "avatar": current_user.profile_image
                         },
-                        "message": content
-                    })
+                        "message": content,
+                        "total_comments": live.total_comment + 1
+                    }
+
+                    # ৫. নিজের কাছে সরাসরি রেসপন্স পাঠান (নিশ্চিত হওয়ার জন্য)
+                    await websocket.send_json(comment_payload)
+
+                    # ৬. রুমে থাকা বাকি সবাইকে পাঠানো
+                    await livestream_manager.broadcast(ch_name, comment_payload)
+                else:
+                    await websocket.send_json({"event": "error", "message": "Live session not found for " + ch_name})
 
     except WebSocketDisconnect:
         if current_channel:
