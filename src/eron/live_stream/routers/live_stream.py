@@ -161,11 +161,14 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                     continue
 
                 # চেক করা ইউজার আগে এই লাইভে টাকা দিয়ে জয়েন করেছিল কি না
-                already_joined = await LiveViewerModel.find_one(
-                    LiveViewerModel.session["id"] == live.id,
-                    LiveViewerModel.user.id == current_user.id,
-                )
-
+                # already_joined = await LiveViewerModel.find_one(
+                #     LiveViewerModel.session["id"] == live.id,
+                #     LiveViewerModel.user.id == current_user.id,
+                # )
+                already_joined = await LiveViewerModel.find_one({
+                    "session.$id": live.id,
+                    "user.$id": current_user.id
+                })
                 # যদি আগে জয়েন না করে থাকে এবং লাইভটি প্রিমিয়াম হয়
                 if not already_joined and live.is_premium and live.entry_fee > 0:
                     # ইউজারের ব্যালেন্স চেক
