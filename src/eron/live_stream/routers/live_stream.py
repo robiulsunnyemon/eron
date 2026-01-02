@@ -155,6 +155,8 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                         )
                         await new_viewer.insert()
 
+                        await live.update({"$inc": {"earn_coins": live.entry_fee}})
+
                         # লোকাল ইউজারের কয়েন সংখ্যা আপডেট (ফ্রন্টএন্ডে পাঠানোর জন্য)
                         current_user.coins -= live.entry_fee
                     else:
@@ -177,7 +179,8 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                     "channel": channel_name,
                     "agora_token": viewer_token,
                     "uid": viewer_uid,
-                    "new_balance": current_user.coins
+                   ## "new_balance": current_user.coins
+                    "new_balance": live.earn_coins
                 })
 
             elif action == "send_like":
