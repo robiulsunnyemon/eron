@@ -157,6 +157,13 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
 
                         await live.update({"$inc": {"earn_coins": live.entry_fee}})
 
+                        live.earn_coins += live.entry_fee
+
+                        await livestream_manager.broadcast(channel_name, {
+                            "event": "earning_update",
+                            "total_earned": live.earn_coins
+                        })
+
                         # লোকাল ইউজারের কয়েন সংখ্যা আপডেট (ফ্রন্টএন্ডে পাঠানোর জন্য)
                         current_user.coins -= live.entry_fee
                     else:
@@ -174,13 +181,15 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                     APP_ID, APP_CERTIFICATE, channel_name, viewer_uid, 2, int(time.time()) + 3600
                 )
 
+
+
                 await websocket.send_json({
                     "event": "joined_success",
                     "channel": channel_name,
                     "agora_token": viewer_token,
                     "uid": viewer_uid,
                    ## "new_balance": current_user.coins
-                    "new_balance": live.earn_coins
+                    "total_earned": live.earn_coins
                 })
 
             elif action == "send_like":
