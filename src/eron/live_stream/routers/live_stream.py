@@ -277,6 +277,39 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
                 else:
                     await websocket.send_json({"event": "error", "message": "Live session not found for " + ch_name})
 
+            elif action == "end_live":
+                ch_name = data.get("channel_name")
+
+                # লাইভ সেশনটি খুঁজে বের করা
+                live = await LiveStreamModel.find_one(
+                    LiveStreamModel.agora_channel_name == ch_name,  # এখানে ch_name ব্যবহার করুন
+                    LiveStreamModel.status == "live",
+                    fetch_links=True
+                )
+
+                if live:
+                    # fetch_links=True থাকায় live.host সরাসরি UserModel অবজেক্ট
+                    # তাই সরাসরি ID তুলনা করা সবচেয়ে নিরাপদ
+                    if str(live.host.id) == str(current_user.id):
+                        live.status = "ended"
+                        live.end_time = datetime.now(timezone.utc)
+                        await live.save()
+
+                        # রুমে থাকা সবাইকে জানানো
+                        await livestream_manager.broadcast(ch_name, {
+                            "event": "live_ended",
+                            "channel_name": ch_name,
+                            "message": "The host has ended the live stream."
+                        })
+
+                        # হোস্টের কানেকশন ক্লোজ করা
+                        await livestream_manager.disconnect_from_room(websocket, ch_name)
+                        current_channel = None
+                    else:
+                        await websocket.send_json({"event": "error", "message": "You are not the host of this live."})
+                else:
+                    await websocket.send_json({"event": "error", "message": "Active live session not found."})
+
     except WebSocketDisconnect:
         if current_channel:
             await livestream_manager.disconnect_from_room(websocket, current_channel)
