@@ -207,29 +207,30 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
 
                 if live:
                     # ২. লাইভ সেশনের লাইক বাড়ানো (Atomic update)
-                    await live.update({"$inc": {"total_like": 1}})
+                    if str(live.host.id) != str(current_user.id):
+                        await live.update({"$inc": {"total_like": 1}})
 
-                    # ৩. হোস্টের প্রোফাইলে লাইক বাড়ানো
-                    # নোট: fetch_links=True থাকায় live.host.id সরাসরি কাজ করবে
-                    if live.host:
-                        # এখানে সরাসরি কালেকশন নেম ইউজ না করে সোর্স থেকে সার্চ করা নিরাপদ
-                        from eron.users.models.user_models import UserModel as UserClass
-                        await UserClass.find_one({"_id": live.host.id}).update(
-                            {"$inc": {"total_like": 1}}
-                        )
+                        # ৩. হোস্টের প্রোফাইলে লাইক বাড়ানো
+                        # নোট: fetch_links=True থাকায় live.host.id সরাসরি কাজ করবে
+                        if live.host:
+                            # এখানে সরাসরি কালেকশন নেম ইউজ না করে সোর্স থেকে সার্চ করা নিরাপদ
+                            from eron.users.models.user_models import UserModel as UserClass
+                            await UserClass.find_one({"_id": live.host.id}).update(
+                                {"$inc": {"total_like": 1}}
+                            )
 
-                    # ৪. লাইক সংখ্যা আপডেট করে রেসপন্স পাঠানো
-                    updated_likes = live.total_like + 1
-                    response_data = {
-                        "event": "new_like",
-                        "total_likes": updated_likes
-                    }
+                        # ৪. লাইক সংখ্যা আপডেট করে রেসপন্স পাঠানো
+                        updated_likes = live.total_like + 1
+                        response_data = {
+                            "event": "new_like",
+                            "total_likes": updated_likes
+                        }
 
-                    # নিজের কাছে কনফার্মেশন পাঠানো
-                    await websocket.send_json(response_data)
+                        # নিজের কাছে কনফার্মেশন পাঠানো
+                        await websocket.send_json(response_data)
 
-                    # রুমে থাকা সবাইকে জানানো
-                    await livestream_manager.broadcast(ch_name, response_data)
+                        # রুমে থাকা সবাইকে জানানো
+                        await livestream_manager.broadcast(ch_name, response_data)
                 else:
                     await websocket.send_json({"event": "error", "message": "Live session not found"})
 
