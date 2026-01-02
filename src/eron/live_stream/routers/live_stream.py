@@ -157,7 +157,6 @@ async def live_websocket_endpoint(websocket: WebSocket, token: str = Query(...))
 
                         await live.update({"$inc": {"earn_coins": live.entry_fee}})
 
-                        live.earn_coins += live.entry_fee
 
                         await livestream_manager.broadcast(channel_name, {
                             "event": "earning_update",
