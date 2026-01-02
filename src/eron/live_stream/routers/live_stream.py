@@ -5,7 +5,7 @@ import time
 import os
 from datetime import datetime, timezone
 from typing import List
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status,Depends
 from dotenv import load_dotenv
 from eron.live_stream.models.live_stream import LiveStreamModel, LiveViewerModel, LiveCommentModel
 from eron.users.models.user_models import UserModel
@@ -344,3 +344,17 @@ async def get_live_viewers(session_id: UUID):
 @router.get("/viewers",status_code=status.HTTP_200_OK)
 async def get_all_viewers():
     return await LiveViewerModel.find_all().to_list()
+
+
+@router.get("/all_livestream/user", status_code=status.HTTP_200_OK)
+async def get_all_livestream_by_user_id(
+        skip: int = 0,
+        limit: int = 10,
+        current_user: UserModel = Depends(get_current_user)
+):
+    # LiveStreamModel.host.id সরাসরি ব্যবহার করুন এবং find() ব্যবহার করুন
+    all_livestreams = await LiveStreamModel.find(
+        LiveStreamModel.host.id == current_user.id
+    ).sort("-created_at").skip(skip).limit(limit).to_list()
+
+    return all_livestreams
